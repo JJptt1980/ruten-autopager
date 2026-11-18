@@ -20,7 +20,7 @@
 ## 安裝
 
 1. 在瀏覽器安裝 [Tampermonkey](https://www.tampermonkey.net/)
-2. 點這個連結：[安裝腳本](https://raw.githubusercontent.com/killnopig/ruten-autopager/main/ruten-autopager.user.js)，Tampermonkey 會跳出安裝畫面，按「安裝」
+2. 點這個連結：[安裝腳本](https://raw.githubusercontent.com/JJptt1980/ruten-autopager/main/ruten-autopager.user.js)，Tampermonkey 會跳出安裝畫面，按「安裝」
 3. 如果有裝東方永頁機，請在露天停用它，避免兩個一起翻頁
 4. 重新整理露天賣場頁面
 
