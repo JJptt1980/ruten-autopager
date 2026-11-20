@@ -1,5 +1,7 @@
 # 露天賣場自動翻頁
 
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-%E8%AB%8B%E6%88%91%E5%96%9D%E6%9D%AF%E5%92%96%E5%95%A1-FF5E5B?logo=ko-fi&logoColor=white)](https://ko-fi.com/jjptt1980)
+
 一個 Tampermonkey 使用者腳本：在露天拍賣的賣場頁面往下捲時，自動載入下一頁商品並接在下方。
 
 ## 為什麼不用東方永頁機
