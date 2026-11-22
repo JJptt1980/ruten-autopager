@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         露天賣場自動翻頁
-// @namespace    https://github.com/killnopig
-// @version      1.2
+// @namespace    https://github.com/JJptt1980
+// @version      1.3
 // @description  露天拍賣賣場頁捲到底自動載入下一頁，不用 iframe，速度和露天本身一樣快
 // @match        https://www.ruten.com.tw/store/*
 // @run-at       document-idle
