@@ -30,7 +30,7 @@
 - 功能：主題聯集篩選、只看新上架、跨店比價
 - 形式：另做總覽頁，一次抓 6 家
 - 主題：表單上原本列的全部 + 推薦的新作／冷門／經典／電玩 + 追加的亂馬 1/2、棒球、籃球、高爾夫、工程、機械、富堅義博
-- 待確認的字：「小心」、「九龍珠」、「殺手童話」
+- 已確認：「小心」＝蠟筆小新；「九龍珠」、「殺手童話」是作品名稱，照字面搜尋
 - 露天 API（賣場商品清單）：`rtapi.ruten.com.tw/api/search/v3/index.php/core/seller/<賣家數字ID>/prod?sort=rnk/dc&limit=30&offset=N`（JSONP），商品明細：`rapi.ruten.com.tw/api/items/v2/list?gno=...`
 
 ## 已知問題
