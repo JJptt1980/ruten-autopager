@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         露天賣場自動翻頁
 // @namespace    https://github.com/JJptt1980
-// @version      1.3
+// @version      1.4
 // @description  露天拍賣賣場頁捲到底自動載入下一頁，不用 iframe，速度和露天本身一樣快
 // @match        https://www.ruten.com.tw/store/*
 // @run-at       document-idle
@@ -17,7 +17,7 @@
   const LIST = '.rt-store-product-list-main';
   const NEXT_LI = '.rt-pagination li.next';
   const PAGE_INFO = '.page-info-pagenum';
-  const TRIGGER_SCREENS = 1.5; // 距離列表底部還剩幾個螢幕高就先載入
+  const TRIGGER_SCREENS = 3; // 距離列表底部還剩幾個螢幕高就先載入（露天每頁要 0.5～3 秒，太晚載入捲快了會看到空白）
   const TIMEOUT = 10000;
 
   let acc = null;
@@ -73,6 +73,23 @@
     return d;
   }
 
+  // 離畫面很遠的舊頁先把商品拿掉、只留同樣高度的空框，捲回附近再放回去。
+  // 翻了幾十頁、畫面上有幾千個商品時，換頁才不會越來越卡
+  const pager = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      const holder = e.target;
+      if (e.isIntersecting) {
+        if (!holder.firstChild) {
+          holder.appendChild(holder._snap);
+          holder.style.height = '';
+        }
+      } else if (holder.firstChild) {
+        holder.style.height = e.boundingClientRect.height + 'px';
+        holder.replaceChildren();
+      }
+    }
+  }, { rootMargin: '3000px 0px' });
+
   // 載入中暫時停用網站的捲動，避免換頁時跳回列表頂端
   const orig = {
     scrollTo: window.scrollTo,
@@ -104,26 +121,41 @@
     const y = window.scrollY;
     const t0 = performance.now();
 
+    const h = list.offsetHeight; // 先量好高度，避免改完畫面再量又要重排一次
+
     // 把目前這頁的商品複製一份留在列表上方
     const snap = list.cloneNode(true);
     snap.removeAttribute('id');
-    snap.classList.add('rtap-page');
+    const holder = document.createElement('div');
+    holder.className = 'rtap-page';
+    holder._snap = snap;
+    holder.appendChild(snap);
     const box = ensureAcc(list);
     if (!box.children.length && before) box.appendChild(separator(before.cur));
-    box.appendChild(snap);
+    box.appendChild(holder);
+    pager.observe(holder);
     const sep = separator(before ? before.cur + 1 : '?');
     box.appendChild(sep);
 
-    list.style.minHeight = list.offsetHeight + 'px';
+    list.style.minHeight = h + 'px';
+    // 載入期間使用者還會繼續捲，記下使用者捲到的位置；
+    // 一下子往上跳超過一個螢幕高的，當成是露天自己把畫面拉回列表頂端，不算
+    let userY = y;
+    const onScroll = () => {
+      const cur = window.scrollY;
+      if (userY - cur < window.innerHeight) userY = cur;
+    };
+    window.addEventListener('scroll', onScroll, { passive: true });
     lockScroll();
     nextA.click();
 
     const done = (ok) => {
       clearInterval(timer);
+      window.removeEventListener('scroll', onScroll);
       unlockScroll();
       list.style.minHeight = '';
-      if (window.scrollY !== y) orig.scrollTo.call(window, 0, y);
-      if (!ok) { snap.remove(); sep.remove(); }
+      if (Math.abs(window.scrollY - userY) > 2) orig.scrollTo.call(window, 0, userY);
+      if (!ok) { pager.unobserve(holder); holder.remove(); sep.remove(); }
       loading = false;
       graceUntil = performance.now() + 1500;
       lastKey = baseKey();
@@ -161,6 +193,7 @@
     lastKey = k;
     if (loading || performance.now() < graceUntil) return;
     if (acc) {
+      pager.disconnect();
       acc.remove();
       acc = null;
       log('換了分類或排序，重設');
