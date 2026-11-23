@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         露天賣場自動翻頁
 // @namespace    https://github.com/JJptt1980
-// @version      1.4
+// @version      1.5
 // @description  露天拍賣賣場頁捲到底自動載入下一頁，不用 iframe，速度和露天本身一樣快
 // @match        https://www.ruten.com.tw/store/*
 // @run-at       document-idle
@@ -143,7 +143,7 @@
     let userY = y;
     const onScroll = () => {
       const cur = window.scrollY;
-      if (userY - cur < window.innerHeight) userY = cur;
+      if (userY - cur < window.innerHeight / 2) userY = cur;
     };
     window.addEventListener('scroll', onScroll, { passive: true });
     lockScroll();
@@ -154,7 +154,8 @@
       window.removeEventListener('scroll', onScroll);
       unlockScroll();
       list.style.minHeight = '';
-      if (Math.abs(window.scrollY - userY) > 2) orig.scrollTo.call(window, 0, userY);
+      // 只在露天把畫面往上拉了一大段時才補救；使用者自己往下捲的不去動，免得被拉回一小段
+      if (userY - window.scrollY > window.innerHeight / 2) orig.scrollTo.call(window, 0, userY);
       if (!ok) { pager.unobserve(holder); holder.remove(); sep.remove(); }
       loading = false;
       graceUntil = performance.now() + 1500;
