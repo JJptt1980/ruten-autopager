@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         露天賣場自動翻頁
 // @namespace    https://github.com/JJptt1980
-// @version      1.6
+// @version      1.7
 // @description  露天賣場頁捲到底自動載入下一頁；左下角「公仔總覽」一次抓 6 家信任賣場的新上架商品，依主題篩選、跨店比價
 // @match        https://www.ruten.com.tw/store/*
 // @run-at       document-idle
@@ -90,24 +90,36 @@
     }
   }, { rootMargin: '3000px 0px' });
 
-  // 載入中暫時停用網站的捲動，避免換頁時跳回列表頂端
+  // 露天每次換頁都會把畫面捲回列表頂端（window.scrollTo({top: 列表頂端})）。
+  // 載入中全部擋掉；載完後 GUARD_MS 內，網站要把畫面往上拉一大段的也擋掉——
+  // 露天有時比較晚才改網址，這個捲動會晚到載入結束後才發生，畫面就被拉回第 1 頁
+  const GUARD_MS = 5000;
   const orig = {
     scrollTo: window.scrollTo,
     scroll: window.scroll,
     scrollIntoView: Element.prototype.scrollIntoView,
     elScrollTo: Element.prototype.scrollTo,
   };
-  function lockScroll() {
-    const noop = function () {};
-    window.scrollTo = window.scroll = noop;
-    Element.prototype.scrollIntoView = noop;
-    Element.prototype.scrollTo = noop;
-  }
+  let lockAll = false;
+  let guardUntil = 0;
+  const targetTop = (a) => (a[0] && typeof a[0] === 'object' ? a[0].top : a[1]);
+  const pullsUp = (top) => typeof top === 'number' && top < window.scrollY - window.innerHeight / 2;
+  const blocked = (top) => lockAll || (performance.now() < guardUntil && pullsUp(top));
+  const isPage = (el) => el === document.scrollingElement || el === document.documentElement || el === document.body;
+  window.scrollTo = function (...a) { if (!blocked(targetTop(a))) return orig.scrollTo.apply(this, a); };
+  window.scroll = function (...a) { if (!blocked(targetTop(a))) return orig.scroll.apply(this, a); };
+  Element.prototype.scrollTo = function (...a) {
+    if (lockAll || (isPage(this) && blocked(targetTop(a)))) return;
+    return orig.elScrollTo.apply(this, a);
+  };
+  Element.prototype.scrollIntoView = function (...a) {
+    if (lockAll || (performance.now() < guardUntil && pullsUp(window.scrollY + this.getBoundingClientRect().top))) return;
+    return orig.scrollIntoView.apply(this, a);
+  };
+  function lockScroll() { lockAll = true; }
   function unlockScroll() {
-    window.scrollTo = orig.scrollTo;
-    window.scroll = orig.scroll;
-    Element.prototype.scrollIntoView = orig.scrollIntoView;
-    Element.prototype.scrollTo = orig.elScrollTo;
+    lockAll = false;
+    guardUntil = performance.now() + GUARD_MS;
   }
 
   function loadNext() {
