@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         露天賣場自動翻頁
 // @namespace    https://github.com/JJptt1980
-// @version      1.7
+// @version      1.8
 // @description  露天賣場頁捲到底自動載入下一頁；左下角「公仔總覽」一次抓 6 家信任賣場的新上架商品，依主題篩選、跨店比價
 // @match        https://www.ruten.com.tw/store/*
 // @run-at       document-idle
@@ -317,7 +317,8 @@
     'https://rtapi.ruten.com.tw/api/search/v3/index.php/core/seller/' + sid +
     '/prod?sort=' + sort + '&limit=50&offset=' + offset + (q ? '&q=' + encodeURIComponent(q) : '');
   const API_ITEMS = (ids) => 'https://rapi.ruten.com.tw/api/items/v2/list?level=simple&gno=' + ids.join(',');
-  const ASK_PRICE = 1000000; // 賣家用來代表「價格請詢問」的離譜價格
+  // 賣家把已結單、售完、要詢價的商品標成離譜價格（例如 450 元的標成 450999），10 萬以上都當成不能直接買
+  const ASK_PRICE = 100000;
 
   // ── 存在瀏覽器裡的設定與資料 ──
   const K = 'rtfig_';
@@ -328,6 +329,7 @@
     stores: STORES.map((s) => s.user),
     pages: 4, // 每家抓幾頁（每頁 50 件）
     onlyNew: false,
+    group: true, // 同款排在一起
     min: '', max: '',
     sort: 'new',
     tab: 'new',
@@ -437,7 +439,7 @@
   const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const setStatus = (s) => { if (root) $('#rtfig-status').textContent = s; };
   const fmtDate = (t) => { const d = new Date(t * 1000); return (d.getMonth() + 1) + '/' + d.getDate(); };
-  const fmtPrice = (it) => it.price >= ASK_PRICE ? '價格請詢問'
+  const fmtPrice = (it) => it.price >= ASK_PRICE ? '已結單／請詢問'
     : '$' + it.price.toLocaleString() + (it.hi > it.price && it.hi < ASK_PRICE ? ' 起' : '');
 
   const CSS = `
@@ -474,6 +476,8 @@
 #rtfig .card .best{position:absolute;top:6px;right:6px;background:#34c759;color:#fff;font-size:11px;padding:1px 6px;border-radius:8px}
 #rtfig .tags{padding:0 8px;font-size:11px;color:#0058b0}
 #rtfig .empty{padding:60px;text-align:center;color:#888;grid-column:1/-1}
+#rtfig .same{grid-column:1/-1;background:#e8f1fd;border-radius:14px;padding:10px}
+#rtfig .same-h{font-size:13px;color:#0058b0;margin:0 0 8px;font-weight:600}
 #rtfig-btn{position:fixed;left:16px;bottom:16px;z-index:2147482000;background:#1d1d1f;color:#fff;border:0;border-radius:20px;padding:8px 16px;font:14px -apple-system,"PingFang TC",sans-serif;cursor:pointer;box-shadow:0 2px 10px rgba(0,0,0,.25)}
 @media (max-width:760px){#rtfig .wrap{flex-direction:column}#rtfig .side{width:100%;position:static;max-height:none}}`;
 
@@ -493,6 +497,7 @@
     <h3>賣場</h3><div class="chips" id="rtfig-stores"></div>
     <h3>條件</h3>
     <div class="row"><label><input type="checkbox" id="rtfig-onlynew"> 只看沒看過的</label></div>
+    <div class="row"><label><input type="checkbox" id="rtfig-group"> 同款排在一起</label></div>
     <div class="row">價格 <input id="rtfig-min" size="5" placeholder="最低"> ～ <input id="rtfig-max" size="5" placeholder="最高"></div>
     <div class="row">排序 <select id="rtfig-sort"><option value="new">最新上架</option><option value="lo">價格低到高</option><option value="hi">價格高到低</option><option value="sold">賣最多</option></select></div>
     <div class="row">每家抓 <select id="rtfig-pages"><option>2</option><option>4</option><option>8</option><option>12</option></select> 頁（每頁 50 件）</div>
@@ -540,6 +545,9 @@
     const onlyNew = $('#rtfig-onlynew');
     onlyNew.checked = cfg.onlyNew;
     onlyNew.onchange = () => { cfg.onlyNew = onlyNew.checked; persist(); render(); };
+    const grp = $('#rtfig-group');
+    grp.checked = cfg.group;
+    grp.onchange = () => { cfg.group = grp.checked; persist(); render(); };
     for (const k of ['min', 'max']) {
       const el = $('#rtfig-' + k);
       el.value = cfg[k];
@@ -625,6 +633,79 @@
     });
   }
 
+  // ── 同款判斷：把標題裡的店名、預購日期、品牌、運費等雜訊拿掉，
+  //    剩下的作品名＋角色名＋商品系列都一樣才算同一款 ──
+  const STORE_WORDS = ['史派克工廠', '密斯特喬', '萬年馬如龍', '轉蛋玩具館', '轉蛋概念館', '高雄冠軍', '冠軍玩具', '怨念事務所'];
+  const NOISE = [
+    '樣品瑕疵出清', '售出不退', '不挑盒況', '超商付款', '現貨供應', 'PVC完成品', '完成品',
+    '預購', '預約', '預定', '預訂', '結單', '補單', '現貨', '售完', '免運', '免訂金', '代理版', '代理',
+    '日版', '港版', '台版', '先行', '再版', '再販', '附特典', '特典', '正版', '全新', '公仔', '景品', '模型',
+    '萬代南夢宮', '萬代', '好微笑', '壽屋',
+  ];
+  const NOISE_ASCII = new Set(['BANDAI', 'BP', 'BANPRESTO', 'SEGA', 'TAITO', 'FURYU', 'GSC', 'MH', 'MEGAHOUSE',
+    'KOTOBUKIYA', 'GOOD', 'SMILE', 'COMPANY', 'VER', 'PVC', 'NEW', 'BIG']);
+  const SYN = [[/S\.H\.MONSTERARTS|SHMONSTERARTS/g, 'SHM'], [/S\.H\.FIGUARTS|S\.H\.F(?![A-Z])/g, 'SHF'],
+    [/POP UP PARADE/g, 'PUP'], [/黏土人/g, 'NENDO'], [/芙利蓮/g, '芙莉蓮']];
+  const keyCache = new WeakMap();
+
+  function sameKey(it) {
+    if (keyCache.has(it)) return keyCache.get(it);
+    let t = norm(it.name).replace(/【[^】]*】|《[^》]*》|\[[^\]]*\]/g, ' ');
+    for (const w of STORE_WORDS) t = t.split(w).join(' ');
+    t = t.replace(/\d{2}年(第?[一二三四1-4]季|Q[1-4]|\d{1,2}月)?/g, ' ')
+      .replace(/\d{1,2}月(上旬|中旬|下旬)?/g, ' ')
+      .replace(/(^|\s)Q[1-4](?=\s|$)/g, ' ')
+      .replace(/(^|[^0-9])(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])(?![0-9])/g, '$1 '); // 上架日期碼，例如 0525
+    for (const [re, s] of SYN) t = t.replace(re, s);
+    for (const w of NOISE) t = t.split(w).join(' ');
+    const k = { cjk: new Map(), n: 0, ascii: new Set(), nums: new Set() };
+    for (const m of t.matchAll(/[぀-ヿ㐀-鿿]+|[A-Z0-9][A-Z0-9.\-+/]*/g)) {
+      const w = m[0].replace(/\.$/, '');
+      if (/[A-Z0-9]/.test(w[0])) {
+        if (NOISE_ASCII.has(w)) continue;
+        (/^\d+$/.test(w) ? k.nums : k.ascii).add(w);
+      } else {
+        for (const ch of w) { k.cjk.set(ch, (k.cjk.get(ch) || 0) + 1); k.n++; }
+      }
+    }
+    keyCache.set(it, k);
+    return k;
+  }
+
+  const setDiff = (a, b) => [...a].some((x) => !b.has(x));
+  // A 比 B 多出幾個中文字（照次數算）
+  const extra = (a, b) => { let n = 0; for (const [ch, c] of a) n += Math.max(0, c - (b.get(ch) || 0)); return n; };
+
+  function isSame(A, B) {
+    if (A.n < 3 || Math.abs(A.n - B.n) > 1) return false;
+    // 只容許一邊多寫或漏寫一個字；兩邊各換一個字（芙莉蓮/費倫、白色/墨色）算不同
+    if (extra(A.cjk, B.cjk) + extra(B.cjk, A.cjk) > 1) return false;
+    // 英文字（系列名、A款/B款、II）要完全一樣
+    if (setDiff(A.ascii, B.ascii) || setDiff(B.ascii, A.ascii)) return false;
+    // 編號（黏土人 2986、第 2 彈）兩邊都有寫的話要一樣
+    if (A.nums.size && B.nums.size && (setDiff(A.nums, B.nums) || setDiff(B.nums, A.nums))) return false;
+    return true;
+  }
+
+  // 依原本的排序分組：每組出現在它第一件商品的位置
+  function groupSame(list) {
+    const keys = list.map(sameKey);
+    const parent = list.map((_, i) => i);
+    const find = (i) => (parent[i] === i ? i : (parent[i] = find(parent[i])));
+    for (let i = 0; i < list.length; i++) {
+      for (let j = i + 1; j < list.length; j++) {
+        if (find(i) !== find(j) && isSame(keys[i], keys[j])) parent[find(j)] = find(i);
+      }
+    }
+    const groups = new Map();
+    list.forEach((it, i) => {
+      const r = find(i);
+      if (!groups.has(r)) groups.set(r, []);
+      groups.get(r).push(it);
+    });
+    return [...groups.values()];
+  }
+
   function sortItems(list, how) {
     const lo = (it) => (it.price >= ASK_PRICE ? Infinity : it.price);
     const hi = (it) => (it.price >= ASK_PRICE ? -1 : it.price);
@@ -675,8 +756,23 @@
       $('#rtfig-info').textContent = '符合主題 ' + list.length + ' 件（沒看過 ' + newN + ' 件），從各家最新的 ' + items.length + ' 件商品中篩選';
     }
     const shown = list.slice(0, 600);
-    $('#rtfig-grid').innerHTML = shown.length ? shown.map((it) => card(it, minPrice)).join('')
-      : '<div class="empty">沒有符合條件的商品</div>';
+    let html;
+    if (cfg.group) {
+      // 同款的放在一起：組內照價格由低到高，標出這組最便宜的
+      const lo = (it) => (it.price >= ASK_PRICE ? Infinity : it.price);
+      html = groupSame(shown).map((g) => {
+        if (g.length === 1) return card(g[0], minPrice);
+        g.sort((a, b) => lo(a) - lo(b));
+        const best = lo(g[0]);
+        const stores = new Set(g.map((it) => it.store)).size;
+        return '<div class="same"><div class="same-h">同款 ' + g.length + ' 件・' + stores + ' 家' +
+          (best < Infinity ? '・最低 $' + best.toLocaleString() + '（' + esc(g[0].store) + '）' : '') + '</div>' +
+          '<div class="grid">' + g.map((it) => card(it, best)).join('') + '</div></div>';
+      }).join('');
+    } else {
+      html = shown.map((it) => card(it, minPrice)).join('');
+    }
+    $('#rtfig-grid').innerHTML = html || '<div class="empty">沒有符合條件的商品</div>';
     if (list.length > shown.length) {
       $('#rtfig-grid').insertAdjacentHTML('beforeend', '<div class="empty">還有 ' + (list.length - shown.length) + ' 件沒顯示，請少勾一些主題或加價格條件</div>');
     }
